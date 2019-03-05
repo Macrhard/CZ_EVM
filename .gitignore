@@ -1,0 +1,10 @@
+#quartus' file gitignore file
+#首先忽略追踪所有文件
+/*
+#追踪Verilog文件
+!code/
+#追踪配置文件
+!*.qsf
+!*.tcl
+#追踪设计文件
+!.gitignore

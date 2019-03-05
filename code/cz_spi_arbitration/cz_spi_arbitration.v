@@ -1,0 +1,801 @@
+//SPI总线仲裁模块，主要实现MCU控制SPI和FPGA控制SPI时，避免两者存在冲突
+//采用优先权方式对MCU读、MCU写、FPGA读和FPGA写进行优先级判别，确保每次
+//请求都能正确相应。每次读写的优先级别相等，以等待时间作为优先权，即等待
+//时间最长的请求将获取到SPI的控制权
+
+//fpga只有读没有写 （agc模块的读）
+module cz_spi_arbitration(
+	input					i_clk			,
+	input 					i_rst_n			,
+
+//MCU的读写控制	
+	input                   i_rd_en_mcu     ,	 //读使能，需要上升沿
+	input                   i_wr_en_mcu     ,	 //写使能，需要上升沿
+	input 		          	i_mod_sel_mcu   ,  // mod_sel 控制内/外
+	input [15:0]            i_rw_addr_mcu   ,  //mcu 读/写的地址
+	input [31:0]            i_wr_data_mcu   ,  //mcu写的 数据
+	
+	
+//FPGA的读控制
+    input                   i_rd_en_fpga0    ,
+    input                   i_rd_en_fpga1    ,             
+
+//输出到SPI驱动模块的信息
+    output              	o_rd_en         ,
+    output              	o_wr_en         ,
+    output [15:0]        	o_rw_addr       ,
+    output 			        o_mod_sel_mcu   ,  //内外 模式
+    output [31:0]        	o_wr_data_mcu   ,
+//  output [1:0]        	o_rw_chip_mcu   ,  //片选输出
+    
+    
+    
+//SPI驱动模块输出的相关信息，本模块进行读取分配
+    input  [7:0]           i_return_success,  //读取成功标志
+    input  [31:0]          i_return_data   ,  //接收MISO
+    
+//输出到FPGA驱动本模块的数据
+	output  [31:0]        	o_data_to_fpga0   ,
+	output               	o_success_to_fpga0,
+
+	output  [31:0]        	o_data_to_fpga1   ,
+	output               	o_success_to_fpga1,
+		                     	
+	output  [31:0]        	o_data_to_mcu    , //返回spi从收发器中读到的数据 输出到监视寄存器
+	output  [7:0]        	o_success_to_mcu   //成功标志输出到监视寄存器
+	);
+
+assign	write_enable = i_wr_en_mcu;
+//仲裁的状态信息	
+parameter IDLE       = 0;
+parameter MCU_READ   = 1;
+parameter MCU_WRITE  = 2;
+
+//AGC 模块 fpga读取ad9361状态
+parameter FPGA_READ0 = 3;
+parameter FPGA_READ1 = 4;
+
+//状态机
+reg [2:0] current_state;
+reg [2:0] next_state   ;
+
+//控制SPI总线的成功标志
+reg r_mcu_read_success;
+reg r_mcu_write_success;
+reg r_fpga_read0_success;
+reg r_fpga_read1_success;
+
+//定义优先权
+parameter pri_null       = 0;
+parameter pri_mcu_read   = 1;
+parameter pri_mcu_write  = 2;
+parameter pri_fpga_read0 = 3;
+parameter pri_fpga_read1 = 4;
+
+//冲裁后获取到的SPI控制权
+reg r_mcu_read_catpure;
+reg r_mcu_write_catpure;
+reg r_fpga_read0_catpure;
+reg r_fpga_read1_catpure;
+
+//捕获MCU读标志
+reg r0_rd_en_mcu;
+reg r1_rd_en_mcu;
+always@(posedge i_clk )
+begin
+	r0_rd_en_mcu <= i_rd_en_mcu;
+	r1_rd_en_mcu <= r0_rd_en_mcu;	
+end
+
+reg r_mcu_read_flag;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r_mcu_read_flag <= 1'b0;
+	else if(r0_rd_en_mcu&(!r1_rd_en_mcu))
+		r_mcu_read_flag <= 1'b1;
+	else
+		r_mcu_read_flag <= 1'b0;
+end
+	
+//捕获MCU写标志
+reg r0_wr_en_mcu;
+reg r1_wr_en_mcu;
+always@(posedge i_clk )
+begin
+	r0_wr_en_mcu <= i_wr_en_mcu;
+	r1_wr_en_mcu <= r0_wr_en_mcu;	
+end
+
+reg r_mcu_write_flag;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r_mcu_write_flag <= 1'b0;
+	else if(r0_wr_en_mcu&(!r1_wr_en_mcu))
+		r_mcu_write_flag <= 1'b1;
+	else
+		r_mcu_write_flag <= 1'b0;
+end
+
+//捕获FPGA读标志0
+reg r0_rd0_en_fpga;
+reg r1_rd0_en_fpga;
+always@(posedge i_clk )
+begin
+	r0_rd0_en_fpga <= i_rd_en_fpga0;
+	r1_rd0_en_fpga <= r0_rd0_en_fpga;	
+end
+
+reg r_fpga_read0_flag;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r_fpga_read0_flag <= 1'b0;
+	else if(r0_rd0_en_fpga&(!r1_rd0_en_fpga))
+		r_fpga_read0_flag <= 1'b1;
+	else
+		r_fpga_read0_flag <= 1'b0;
+end
+
+//捕获FPGA读标志0
+reg r0_rd1_en_fpga;
+reg r1_rd1_en_fpga;
+always@(posedge i_clk )
+begin
+	r0_rd1_en_fpga <= i_rd_en_fpga1;
+	r1_rd1_en_fpga <= r0_rd1_en_fpga;	
+end
+
+reg r_fpga_read1_flag;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r_fpga_read1_flag <= 1'b0;
+	else if(r0_rd1_en_fpga&(!r1_rd1_en_fpga))
+		r_fpga_read1_flag <= 1'b1;
+	else
+		r_fpga_read1_flag <= 1'b0;
+end
+
+//记录MCU读请求
+reg r_mcu_read_request;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r_mcu_read_request <= 1'b0;
+	else if(r_mcu_read_flag == 1'b1)
+		r_mcu_read_request <= 1'b1; 
+	else if(r_mcu_read_catpure == 1'b1)
+		r_mcu_read_request <= 1'b0;
+	else
+		r_mcu_read_request <= r_mcu_read_request;
+end
+
+//记录MCU写请求
+reg r_mcu_write_request;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r_mcu_write_request <= 1'b0;
+	else if(r_mcu_write_flag == 1'b1)
+		r_mcu_write_request <= 1'b1;
+	else if(r_mcu_write_catpure == 1'b1)
+		r_mcu_write_request <= 1'b0;
+	else
+		r_mcu_write_request <= r_mcu_write_request;
+end
+
+//记录FPGA读请求0
+reg r_fpga_read0_request;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r_fpga_read0_request <= 1'b0;
+	else if(r_fpga_read0_flag == 1'b1)
+		r_fpga_read0_request <= 1'b1;
+	else if(r_fpga_read0_catpure == 1'b1)
+		r_fpga_read0_request <= 1'b0;
+	else
+		r_fpga_read0_request <= r_fpga_read0_request;
+end
+
+//记录FPGA读请求1
+reg r_fpga_read1_request;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r_fpga_read1_request <= 1'b0;
+	else if(r_fpga_read1_flag == 1'b1)
+		r_fpga_read1_request <= 1'b1;
+	else if(r_fpga_read1_catpure == 1'b1)
+		r_fpga_read1_request <= 1'b0;
+	else
+		r_fpga_read1_request <= r_fpga_read1_request;
+end
+
+
+//记录MCU读请求的等待clk数
+reg [15:0] cnt_mcu_read_wait;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		cnt_mcu_read_wait <= 16'd0;
+	else if(r_mcu_read_request == 1'b1)	
+		cnt_mcu_read_wait <= cnt_mcu_read_wait + 16'd1;
+	else
+		cnt_mcu_read_wait <= 16'd0;
+end
+
+//记录MCU写请求的等待clk数
+reg [15:0] cnt_mcu_write_wait;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		cnt_mcu_write_wait <= 16'd0;
+	else if(r_mcu_write_request == 1'b1)	
+		cnt_mcu_write_wait <= cnt_mcu_write_wait + 16'd1;
+	else
+		cnt_mcu_write_wait <= 16'd0;
+end
+
+//记录FPGA读请求的等待clk数0
+reg [15:0] cnt_fpga_read0_wait;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		cnt_fpga_read0_wait <= 16'd0;
+	else if(r_fpga_read0_request == 1'b1)	
+		cnt_fpga_read0_wait <= cnt_fpga_read0_wait + 16'd1;
+	else
+		cnt_fpga_read0_wait <= 16'd0;
+end
+
+//记录FPGA读请求的等待clk数1
+reg [15:0] cnt_fpga_read1_wait;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		cnt_fpga_read1_wait <= 16'd0;
+	else if(r_fpga_read1_request == 1'b1)	
+		cnt_fpga_read1_wait <= cnt_fpga_read1_wait + 16'd1;
+	else
+		cnt_fpga_read1_wait <= 16'd0;
+end
+
+//每次比较等待时间最长的请求，得到最先获取SPI总线优先权
+reg [2:0] r0_next_run_request;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r0_next_run_request <= pri_null;
+	else if(cnt_mcu_read_wait == 16'd0&&cnt_mcu_write_wait == 16'd0)
+		r0_next_run_request <= pri_null;
+	else if(cnt_mcu_read_wait >= cnt_mcu_write_wait)
+		r0_next_run_request <= pri_mcu_read;
+	else if(cnt_mcu_read_wait < cnt_mcu_write_wait)
+		r0_next_run_request <= pri_mcu_write;
+	else	
+		r0_next_run_request <= r0_next_run_request;
+end
+
+reg [2:0] r1_next_run_request;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r1_next_run_request <= pri_null;
+	else if(cnt_fpga_read0_wait == 16'd0&&cnt_fpga_read1_wait == 16'd0)
+		r1_next_run_request <= pri_null;
+	else if(cnt_fpga_read0_wait >= cnt_fpga_read1_wait)
+		r1_next_run_request <= pri_fpga_read0;
+	else if(cnt_fpga_read0_wait < cnt_fpga_read1_wait)
+		r1_next_run_request <= pri_fpga_read1;
+	else	
+		r1_next_run_request <= r1_next_run_request;
+end
+
+reg [2:0] r_next_run_request;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		r_next_run_request <= pri_null;
+	else if(r0_next_run_request == pri_null&&r1_next_run_request == pri_null)
+		r_next_run_request <= pri_null;
+	else if(r0_next_run_request == pri_null&& r1_next_run_request != pri_null)
+		r_next_run_request <= r1_next_run_request;
+	else if(r0_next_run_request != pri_null&& r1_next_run_request == pri_null)
+		r_next_run_request <= r0_next_run_request;
+	else if(r0_next_run_request == pri_mcu_read&&r1_next_run_request == pri_fpga_read0)
+		begin
+			if(cnt_mcu_read_wait >= cnt_fpga_read0_wait)
+				r_next_run_request <= pri_mcu_read;
+			else
+				r_next_run_request <= pri_fpga_read0;				
+		end
+	else if(r0_next_run_request == pri_mcu_write&&r1_next_run_request == pri_fpga_read0)
+		begin
+			if(cnt_mcu_write_wait >= cnt_fpga_read0_wait)
+				r_next_run_request <= pri_mcu_write;
+			else
+				r_next_run_request <= pri_fpga_read0;				
+		end
+	else if(r0_next_run_request == pri_mcu_read&&r1_next_run_request == pri_fpga_read1)
+		begin
+			if(cnt_mcu_read_wait >= cnt_fpga_read1_wait)
+				r_next_run_request <= pri_mcu_read;
+			else
+				r_next_run_request <= pri_fpga_read1;				
+		end		
+	else if(r0_next_run_request == pri_mcu_write&&r1_next_run_request == pri_fpga_read1)
+		begin
+			if(cnt_mcu_write_wait >= cnt_fpga_read1_wait)
+				r_next_run_request <= pri_mcu_write;
+			else
+				r_next_run_request <= pri_fpga_read1;				
+		end					
+	else	
+		r_next_run_request <= r_next_run_request;
+end
+
+
+//状态机
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		current_state <= IDLE;
+	else
+		current_state <= next_state;
+end
+
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		begin
+			next_state <= IDLE;
+		end
+	else
+		case(current_state)
+			IDLE:
+				begin
+					if(r_next_run_request == pri_null)
+						next_state <= IDLE;
+					else if(r_next_run_request == pri_mcu_read)
+						next_state <= MCU_READ;
+					else if(r_next_run_request == pri_mcu_write)
+						next_state <= MCU_WRITE;
+					else if(r_next_run_request == pri_fpga_read0)
+						next_state <= FPGA_READ0;
+					else if(r_next_run_request == pri_fpga_read1)
+						next_state <= FPGA_READ1;
+					else
+						next_state <= IDLE;
+				end
+			MCU_READ://MCU读SPI
+				begin
+					if(r_mcu_read_success == 1'b1)
+						next_state <= IDLE;
+					else
+						next_state <= next_state;					  
+				end
+			MCU_WRITE://MCU写SPI
+				begin
+					if(r_mcu_write_success == 1'b1)
+						next_state <= IDLE;
+					else
+						next_state <= next_state;
+				end
+			FPGA_READ0://FPGA读SPI
+					if(r_fpga_read0_success == 1'b1)
+						next_state <= IDLE;
+					else
+						next_state <= next_state;
+			FPGA_READ1://FPGA写SPI
+				begin	
+					if(r_fpga_read1_success == 1'b1)
+						next_state <= IDLE;
+					else
+						next_state <= next_state;
+				end
+			default:
+				begin
+					current_state 		<= IDLE ;
+				end
+		endcase
+end
+
+//释放请求
+
+
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		begin
+			r_mcu_read_catpure	 <= 1'b0 ;
+			r_mcu_write_catpure	 <= 1'b0	;
+			r_fpga_read0_catpure  <= 1'b0	;
+			r_fpga_read1_catpure  <= 1'b0	;
+		end
+	else
+		case(current_state)
+			IDLE:
+				begin
+					r_mcu_read_catpure	 <= 1'b0 ;
+					r_mcu_write_catpure	 <= 1'b0	;
+					r_fpga_read0_catpure <= 1'b0	;
+					r_fpga_read1_catpure <= 1'b0	;
+				end
+			MCU_READ://MCU读SPI
+				begin
+					r_mcu_read_catpure	 <= 1'b1 ;
+					r_mcu_write_catpure	 <= 1'b0	;
+					r_fpga_read0_catpure <= 1'b0	;
+					r_fpga_read1_catpure <= 1'b0	;
+				end
+			MCU_WRITE://MCU写SPI
+				begin
+					r_mcu_read_catpure	 <= 1'b0 ;
+					r_mcu_write_catpure	 <= 1'b1	;
+					r_fpga_read0_catpure  <= 1'b0	;
+					r_fpga_read1_catpure  <= 1'b0	;
+				end
+			FPGA_READ0://FPGA读SPI
+				begin
+					r_mcu_read_catpure	 <= 1'b0 ;
+					r_mcu_write_catpure	 <= 1'b0	;
+					r_fpga_read0_catpure  <= 1'b1	;
+					r_fpga_read1_catpure  <= 1'b0	;
+				end
+			FPGA_READ1://FPGA写SPI
+				begin	
+					r_mcu_read_catpure	 <= 1'b0 ;
+					r_mcu_write_catpure	 <= 1'b0	;
+					r_fpga_read0_catpure  <= 1'b0	;
+					r_fpga_read1_catpure  <= 1'b1	;
+				end
+			default:
+				begin
+					r_mcu_read_catpure	 <= 1'b0 ;
+					r_mcu_write_catpure	 <= 1'b0	;
+					r_fpga_read0_catpure  <= 1'b0	;
+					r_fpga_read1_catpure  <= 1'b0	;
+				end
+		endcase
+end
+
+//操作SPI总线后的返回捕获
+reg r0_return_success;
+reg r1_return_success;
+always@(posedge i_clk)
+begin
+	r0_return_success <= i_return_success[0];
+	r1_return_success <= r0_return_success;			
+end
+
+reg return_success_flag;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)	
+		return_success_flag <= 1'b0;
+	else if(((!r1_return_success)&r0_return_success))
+		return_success_flag <= 1'b1;
+	else
+		return_success_flag <= 1'b0;
+end
+
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		begin
+			r_mcu_read_success 	<= 1'b0;
+			r_mcu_write_success <= 1'b0;
+			r_fpga_read0_success <= 1'b0;
+			r_fpga_read1_success<= 1'b0;
+		end
+	else
+		begin
+    		case(current_state)
+    			IDLE:
+    				begin
+						r_mcu_read_success 	<= 1'b0;
+						r_mcu_write_success <= 1'b0;
+						r_fpga_read0_success <= 1'b0;
+						r_fpga_read1_success<= 1'b0;
+    				end
+    			MCU_READ://MCU读SPI
+    				begin
+						if(return_success_flag == 1'b1)
+							begin
+								r_mcu_read_success 	<= 1'b1;
+								r_mcu_write_success <= 1'b0;
+								r_fpga_read0_success <= 1'b0;
+								r_fpga_read1_success<= 1'b0;									
+							end
+						else
+							begin
+								r_mcu_read_success 	<= 1'b0;
+								r_mcu_write_success <= 1'b0;
+								r_fpga_read0_success <= 1'b0;
+								r_fpga_read1_success<= 1'b0;	
+							end			  
+    				end
+    			MCU_WRITE://MCU写SPI
+    				begin
+						if(return_success_flag == 1'b1)
+							begin
+								r_mcu_read_success 	<= 1'b0;
+								r_mcu_write_success <= 1'b1;
+								r_fpga_read0_success <= 1'b0;
+								r_fpga_read1_success<= 1'b0;									
+							end
+						else
+							begin
+								r_mcu_read_success 	<= 1'b0;
+								r_mcu_write_success <= 1'b0;
+								r_fpga_read0_success <= 1'b0;
+								r_fpga_read1_success<= 1'b0;	
+							end			  
+    				end
+    			FPGA_READ0://FPGA读SPI
+    				begin
+						if(return_success_flag == 1'b1)
+							begin
+								r_mcu_read_success 	<= 1'b0;
+								r_mcu_write_success <= 1'b0;
+								r_fpga_read0_success <= 1'b1;
+								r_fpga_read1_success<= 1'b0;									
+							end
+						else
+							begin
+								r_mcu_read_success 	<= 1'b0;
+								r_mcu_write_success <= 1'b0;
+								r_fpga_read0_success <= 1'b0;
+								r_fpga_read1_success<= 1'b0;	
+							end			  
+    				end
+    			FPGA_READ1://FPGA写SPI
+    				begin
+						if(return_success_flag == 1'b1)
+							begin
+								r_mcu_read_success 	<= 1'b0;
+								r_mcu_write_success <= 1'b0;
+								r_fpga_read0_success <= 1'b0;
+								r_fpga_read1_success<= 1'b1;									
+							end
+						else
+							begin
+								r_mcu_read_success 	<= 1'b0;
+								r_mcu_write_success <= 1'b0;
+								r_fpga_read0_success <= 1'b0;
+								r_fpga_read1_success<= 1'b0;	
+							end			  
+    				end
+    			default:
+    				begin
+						r_mcu_read_success 	<= 1'b0;
+						r_mcu_write_success <= 1'b0;
+						r_fpga_read0_success <= 1'b0;
+						r_fpga_read1_success<= 1'b0;	
+    				end
+    		endcase
+		end
+end
+
+
+
+//数据操作 
+reg 			r_rd_en       ;
+reg 			r_wr_en       ;
+reg [15:0]	r_rw_addr     ;
+reg  			r_mod_sel_mcu ;
+reg [31:0]	r_wr_data_mcu ;
+//reg [1:0]	r_rw_chip_mcu ;
+
+reg [2:0] 	cnt_spi_start;
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)	
+		cnt_spi_start <= 3'd0;
+	else if(current_state == IDLE)
+		cnt_spi_start <= 3'd0;
+	else if(cnt_spi_start == 3'd7)
+		cnt_spi_start <= cnt_spi_start;
+	else
+		cnt_spi_start <= cnt_spi_start + 3'd1;
+end
+
+
+//输出到SPI模块的数据
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		begin
+			r_rw_addr     <= 16'd0; 
+			r_mod_sel_mcu <= 1'd0;
+			r_wr_data_mcu <= 32'd0;
+		end 
+	else
+		begin
+    		case(current_state)
+    			IDLE:
+    				begin
+						r_rw_addr     <= 16'd0; 
+						r_mod_sel_mcu <= 1'd0;
+						r_wr_data_mcu <= 32'd0;
+					//	r_rw_chip_mcu <= 2'd0;
+    				end
+    			MCU_READ,MCU_WRITE://MCU读/写SPI
+    				begin
+						r_rw_addr     <= i_rw_addr_mcu; 
+						r_mod_sel_mcu <= i_mod_sel_mcu;
+						r_wr_data_mcu <= i_wr_data_mcu;
+					//	r_rw_chip_mcu <= i_rw_chip_mcu;	  
+    				end
+    			FPGA_READ0://FPGA读SPI
+    				begin
+						r_rw_addr     <= 16'h10c; 
+						r_mod_sel_mcu <= 1'd0;
+						r_wr_data_mcu <= 32'd0;
+					//	r_rw_chip_mcu <= 2'b00;	 		  
+    				end
+    			FPGA_READ1://FPGA读SPI
+    				begin
+						r_rw_addr     <= 16'h10c; 
+						r_mod_sel_mcu <= 1'd0;
+						r_wr_data_mcu <= 32'd0;
+					//	r_rw_chip_mcu <= 2'b01;	 		  
+    				end
+    			default:
+    				begin
+						r_rw_addr     <= 16'd0; 
+						r_mod_sel_mcu <= 1'd0;
+						r_wr_data_mcu <= 32'd0;
+					//	r_rw_chip_mcu <= 2'd0;	
+    				end
+    		endcase
+		end
+		
+end         
+
+//输出到SPI模块的使能
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		begin
+			r_rd_en <= 1'b0;		
+		    r_wr_en <= 1'b0;
+		end                 
+	else	
+		begin
+    		case(current_state)
+    			IDLE:
+    				begin
+						r_rd_en <= 1'b0;		
+					    r_wr_en <= 1'b0;
+    				end
+    			MCU_READ,FPGA_READ0,FPGA_READ1://MCU读SPI
+    				begin
+						if(cnt_spi_start == 3'd6)
+							begin
+								r_rd_en <= 1'b1;		
+					    		r_wr_en <= 1'b0;
+					    	end
+					    else
+					    	begin
+								r_rd_en <= 1'b0;		
+					    		r_wr_en <= 1'b0;					    		
+					    	end					 
+    				end
+    			MCU_WRITE://FPGA读SPI
+    				begin
+						if(cnt_spi_start == 3'd6)
+							begin
+								r_rd_en <= 1'b0;		
+					    		r_wr_en <= 1'b1;
+					    	end
+					    else
+					    	begin
+								r_rd_en <= 1'b0;		
+					    		r_wr_en <= 1'b0;					    		
+					    	end		 		  
+    				end
+    			default:
+    				begin
+						r_rd_en <= 1'b0;		
+					   r_wr_en <= 1'b0;
+    				end
+    		endcase			
+		end
+end	
+
+
+//分配回读到的数据
+
+reg [7:0]	r_data_to_fpga0   ;
+reg 		r_success_to_fpga0;
+
+reg [7:0]	r_data_to_fpga1   ;
+reg 		r_success_to_fpga1;
+
+reg [31:0]	r_data_to_mcu   ;
+reg [7:0]	r_success_to_mcu;
+
+always@(posedge i_clk or negedge i_rst_n)
+begin
+	if(!i_rst_n)
+		begin
+			r_data_to_fpga0    <= 8'd0;
+			r_success_to_fpga0 <= 1'b0;
+			r_data_to_fpga1    <= 8'd0;
+			r_success_to_fpga1 <= 1'b0;
+			r_data_to_mcu      <= 32'd0;
+			r_success_to_mcu   <= 8'd0;
+		end
+	else	
+		begin
+    		case(current_state)
+    			IDLE:
+    				begin
+						r_data_to_fpga0    <= r_data_to_fpga0;
+						r_success_to_fpga0 <= r_success_to_fpga0;
+						r_data_to_fpga1    <= r_data_to_fpga1;
+						r_success_to_fpga1 <= r_success_to_fpga1;
+						r_data_to_mcu      <= r_data_to_mcu;
+						r_success_to_mcu   <= r_success_to_mcu;
+    				end
+    			MCU_READ,MCU_WRITE://MCU读SPI
+    				begin
+						r_data_to_fpga0    <= r_data_to_fpga0;
+						r_success_to_fpga0 <= r_success_to_fpga0;
+						r_data_to_fpga1    <= r_data_to_fpga1;
+						r_success_to_fpga1 <= r_success_to_fpga1;
+						r_data_to_mcu      <= i_return_data;
+						r_success_to_mcu   <= i_return_success;
+    				end
+    			FPGA_READ0://FPGA读SPI
+    				begin
+						r_data_to_fpga0    <= i_return_data;
+						r_success_to_fpga0 <= r_fpga_read0_success;
+						r_data_to_fpga1    <= r_data_to_fpga1;
+						r_success_to_fpga1 <= r_success_to_fpga1;
+						r_data_to_mcu      <= r_data_to_mcu;
+						r_success_to_mcu   <= r_success_to_mcu;		  
+    				end
+    			FPGA_READ1://FPGA读SPI
+    				begin
+						r_data_to_fpga0    <= r_data_to_fpga0;
+						r_success_to_fpga0 <= r_success_to_fpga0;
+						r_data_to_fpga1    <= i_return_data;
+						r_success_to_fpga1 <= r_fpga_read1_success;
+						r_data_to_mcu      <= r_data_to_mcu;
+						r_success_to_mcu   <= r_success_to_mcu;		  
+    				end
+    			default:
+    				begin
+						r_data_to_fpga0    <= 8'd0;
+						r_success_to_fpga0 <= 1'b0;
+						r_data_to_fpga1    <= 8'd0;
+						r_success_to_fpga1 <= 1'b0;
+						r_data_to_mcu      <= 32'd0;
+						r_success_to_mcu   <= 8'd0;
+    				end
+    		endcase			
+		end
+end
+
+assign   o_rd_en       	    = r_rd_en      ;
+assign   o_wr_en            = r_wr_en      ;
+assign   o_rw_addr          = r_rw_addr    ;
+assign   o_mod_sel_mcu      = r_mod_sel_mcu;
+assign   o_wr_data_mcu      = r_wr_data_mcu;
+
+
+assign   o_data_to_fpga0    = r_data_to_fpga0   ;
+assign   o_success_to_fpga0 = r_success_to_fpga0;
+
+assign   o_data_to_fpga1    = r_data_to_fpga1   ;
+assign   o_success_to_fpga1 = r_success_to_fpga1;
+                 
+assign   o_data_to_mcu      = r_data_to_mcu;
+assign   o_success_to_mcu   = r_success_to_mcu;
+
+endmodule

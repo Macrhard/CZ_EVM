@@ -1,0 +1,449 @@
+`timescale 1ps / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: comba
+// Engineer: liyangjun
+// 
+// Create Date:    
+// Design Name: 
+// Module Name:    spi_interface 
+// Project Name: 
+// Target Devices: 
+// Tool versions:
+// Dependencies: AD80305 的SPI接口驱动,两片AD80305共用一组SPI总线
+//
+// Revision: 
+// Revision 0.01 - File Created
+// Additional Comments: 暂时按照每次只读写一次进行操作，后续考虑是否需要支持多寄存器连续读写功能
+//
+//////////////////////////////////////////////////////////////////////////////////
+module spi_interface(
+//输入FPGA内部的相关量
+	input                       i_fpga_clk_125p		,
+	input                       i_fpga_rst_125p		,
+  
+//输入读写控制信号  
+	input						i_rd_en             ,//读使能，由0变为1时，触发一次读使能
+	input						i_wr_en             ,//写使能，由0变为1时，触发一次写使能
+	input [2:0]                 i_mod_sel			,//是否连续读写控制，为000时，连续读/写1个寄存器，为001时，连续读/写1个寄存器....
+	input [1:0]					i_chip_sel          ,//读写AD80305芯片选择，0为第一片、1为第二片
+	input [9:0]					i_addr				,//待读写的寄存器地址	
+	input [7:0]                 i_data              ,//待写入数据
+    
+    output [7:0]                o_rw_result         ,//输出结果表示，为01时，表示读写正常，其他值时为失败；
+    output [7:0]                o_rw_data           ,//输出读取的结果
+               
+//SPI控制信号
+	input                       i_ad80305_do        ,//ad80305-->fpga
+	output                      o_ad80305_di        ,//fpga-->ad80305
+	output						o_ad80305_clk       ,//输出时钟，1MHz
+	output						o_ad80305_cs0       ,//输出使能，低电平有效
+	output						o_ad80305_cs1		 //输出使能，低电平有效
+    
+    
+   
+    );
+    
+
+parameter READ_1_REG = 1;//每次操作1个寄存器
+parameter READ_2_REG = 1;//每次操作2个寄存器
+parameter READ_3_REG = 1;
+parameter READ_4_REG = 1;
+parameter READ_5_REG = 1;
+parameter READ_6_REG = 1;
+parameter READ_7_REG = 1;
+parameter READ_8_REG = 1;
+
+reg [6:0] spi_current_state;//状态机的状态数，最多状态为8*8+16=80个
+reg [6:0] spi_next_state;//状态机的状态数，最多状态为8*8+16=80个
+
+parameter spi_idle  		= 	0;
+parameter spi_start  		= 	1;        
+parameter spi_rw    		= 	2;
+parameter spi_mod2  		= 	3;
+parameter spi_mod1  		= 	4;              
+parameter spi_mod0  		= 	5;  
+parameter spi_null1 		= 	6;   
+parameter spi_null0 		= 	7;    
+
+parameter spi_add9 			= 	8;   
+parameter spi_add8 			=   9; 
+parameter spi_add7 			=  10; 
+parameter spi_add6 			=  11; 
+parameter spi_add5 			=  12; 
+parameter spi_add4 			=  13; 
+parameter spi_add3 			=  14; 
+parameter spi_add2 			=  15; 
+parameter spi_add1 			=  16; 
+parameter spi_add0 			=  17; 
+       
+parameter spi_wr_data7		=  18; 
+parameter spi_wr_data6		=  19; 
+parameter spi_wr_data5		=  20; 
+parameter spi_wr_data4		=  21; 
+parameter spi_wr_data3		=  22; 
+parameter spi_wr_data2		=  23; 
+parameter spi_wr_data1		=  24; 
+parameter spi_wr_data0		=  25; 
+
+parameter spi_rd_data7		=  26; 
+parameter spi_rd_data6		=  27; 
+parameter spi_rd_data5		=  28; 
+parameter spi_rd_data4		=  29; 
+parameter spi_rd_data3		=  30; 
+parameter spi_rd_data2		=  31; 
+parameter spi_rd_data1		=  32; 
+parameter spi_rd_data0		=  33; 
+
+ parameter spi_stop 		=  34; 
+
+parameter spi_clk_fre       =  124;//125MHz/125 = 1MHz分频
+
+
+//---------------------------------------------------------
+//读使能
+//---------------------------------------------------------
+reg r_rd_en0;
+reg r_rd_en1;
+always@(posedge i_fpga_clk_125p)
+begin
+	r_rd_en0 <= i_rd_en;
+	r_rd_en1 <= r_rd_en0;			
+end
+
+reg r_rd_flag;
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		r_rd_flag <= 1'b0;
+	else if(r_rd_en0&&(!r_rd_en1))
+		r_rd_flag <= 1'b1;
+	else 
+		r_rd_flag <= 1'b0;		
+end
+
+//---------------------------------------------------------
+//写使能
+//---------------------------------------------------------
+reg r_wr_en0;
+reg r_wr_en1;
+always@(posedge i_fpga_clk_125p)
+begin
+	r_wr_en0 <= i_wr_en;
+	r_wr_en1 <= r_wr_en0;			
+end
+
+reg r_wr_flag;
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		r_wr_flag <= 1'b0;
+	else if(r_wr_en0&&(!r_wr_en1))
+		r_wr_flag <= 1'b1;
+	else 
+		r_wr_flag <= 1'b0;		
+end
+
+//---------------------------------------------------------
+//读/写状态保存 写优先，监控需确保每次都只能进行读或者写
+//---------------------------------------------------------
+reg [1:0]r_rw_now_state;
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		r_rw_now_state <= 2'b00;
+	else if(r_wr_flag)
+		r_rw_now_state <= 2'b01;//写标志
+	else if(r_rd_flag)
+		r_rw_now_state <= 2'b10;//读标志
+	else
+		r_rw_now_state <= r_rw_now_state;
+end
+
+//----------------------------------------------------------------
+//读/写控制命令写入 模式+地址，共16位 高位1表示写入，高位0表示读取
+//----------------------------------------------------------------
+reg [15:0] r_write_data;
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		r_write_data <= 16'd0;
+	else if(r_rd_flag)
+		r_write_data <= {1'b0,i_mod_sel,2'b00,i_addr};
+	else if(r_wr_flag)
+		r_write_data <= {1'b1,i_mod_sel,2'b00,i_addr};
+	else
+		r_write_data <= r_write_data;
+end
+
+//---------------------------------------------------------
+//时钟的生成计数 对125MHz进行125分频，频率为1MHz
+//---------------------------------------------------------
+reg [6:0] cnt_fre;
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		cnt_fre <= 7'd0;
+	else if(spi_current_state == spi_idle)
+		cnt_fre <= 7'd0;
+	else if(cnt_fre == spi_clk_fre)
+		cnt_fre <= 7'd0;
+	else
+		cnt_fre <= cnt_fre + 7'd1;
+end
+
+
+//---------------------------------------------------------
+//状态机转移
+//---------------------------------------------------------
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		spi_current_state <= spi_idle;
+	else
+		spi_current_state <= spi_next_state;
+end
+
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		spi_next_state <= spi_idle;
+	else
+		begin
+        	if(cnt_fre == 7'd0)
+        		begin
+                	case(spi_current_state)
+                		spi_idle:
+                			begin
+                				if(r_rd_flag || r_wr_flag)
+                					spi_next_state <= spi_start; 
+                				else
+                					spi_next_state <= spi_next_state;
+                			end
+                		spi_start    :begin	spi_next_state <= spi_rw     ;end
+            			spi_rw       :begin	spi_next_state <= spi_mod2   ;end
+            			spi_mod2     :begin	spi_next_state <= spi_mod1   ;end
+            			spi_mod1     :begin	spi_next_state <= spi_mod0   ;end
+            			spi_mod0     :begin	spi_next_state <= spi_null1  ;end
+            			spi_null1    :begin	spi_next_state <= spi_null0  ;end
+            			spi_null0    :begin	spi_next_state <= spi_add9   ;end
+            			spi_add9    :begin	spi_next_state <= spi_add8   ;end
+            			spi_add8    :begin	spi_next_state <= spi_add7   ;end
+            			spi_add7    :begin	spi_next_state <= spi_add6   ;end
+            			spi_add6    :begin	spi_next_state <= spi_add5   ;end
+            			spi_add5    :begin	spi_next_state <= spi_add4   ;end
+            			spi_add4    :begin	spi_next_state <= spi_add3   ;end
+            			spi_add3    :begin	spi_next_state <= spi_add2   ;end
+            			spi_add2    :begin	spi_next_state <= spi_add1   ;end
+                        spi_add1    :begin	spi_next_state <= spi_add0   ;end
+                        spi_add0    :
+                        	begin	
+                        		if(r_rw_now_state == 2'b01)
+                        			spi_next_state <= spi_wr_data7;
+                        		else if(r_rw_now_state == 2'b10)
+                        			spi_next_state <= spi_rd_data7;
+                        		else
+                        			spi_next_state <= spi_idle;
+                        	end
+                        spi_wr_data7 :begin	spi_next_state <= spi_wr_data6   ;end
+            			spi_wr_data6 :begin	spi_next_state <= spi_wr_data5   ;end
+            			spi_wr_data5 :begin	spi_next_state <= spi_wr_data4   ;end
+            			spi_wr_data4 :begin	spi_next_state <= spi_wr_data3   ;end
+            			spi_wr_data3 :begin	spi_next_state <= spi_wr_data2   ;end
+            			spi_wr_data2 :begin	spi_next_state <= spi_wr_data1   ;end
+            			spi_wr_data1 :begin	spi_next_state <= spi_wr_data0   ;end
+            			spi_wr_data0 :begin	spi_next_state <= spi_stop   	;end
+            
+                        spi_rd_data7 :begin	spi_next_state <= spi_rd_data6   ;end
+            			spi_rd_data6 :begin	spi_next_state <= spi_rd_data5   ;end
+            			spi_rd_data5 :begin	spi_next_state <= spi_rd_data4   ;end
+            			spi_rd_data4 :begin	spi_next_state <= spi_rd_data3   ;end
+            			spi_rd_data3 :begin	spi_next_state <= spi_rd_data2   ;end
+            			spi_rd_data2 :begin	spi_next_state <= spi_rd_data1   ;end
+            			spi_rd_data1 :begin	spi_next_state <= spi_rd_data0   ;end
+            			spi_rd_data0 :begin	spi_next_state <= spi_stop   	;end		
+            			
+            			spi_stop     :begin	spi_next_state <= spi_idle   	;end	
+            			
+                	default:
+                		begin
+                			spi_next_state <= spi_idle;
+                		end
+                	endcase
+                end
+                   else
+   						spi_next_state <= spi_next_state;
+    		end
+
+	
+end
+
+//---------------------------------------------------------
+//输出时钟
+//---------------------------------------------------------
+reg r_ad80305_clk;
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		r_ad80305_clk <= 1'b0;
+	else if(spi_current_state == spi_idle||spi_current_state == spi_start||spi_current_state == spi_stop)
+		r_ad80305_clk <= 1'b0;
+	else 
+		begin
+			if(cnt_fre == 7'd64)
+				r_ad80305_clk <= 1'b1;
+			else if(cnt_fre == 7'd124) 
+				r_ad80305_clk <= 1'b0;
+			else	
+				r_ad80305_clk <= r_ad80305_clk;
+		end
+end
+
+//---------------------------------------------------------
+//输出数据
+//---------------------------------------------------------
+reg r_ad80305_dataout;
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		r_ad80305_dataout <= 1'b0;
+	else if(spi_current_state == spi_idle)
+		r_ad80305_dataout <= 1'b0;
+	else 
+		begin
+			if(cnt_fre == 7'd32)
+				begin
+					case(spi_current_state)
+					   //控制命令写入到ad80305 
+						spi_start:begin	r_ad80305_dataout <= 1'b0            ;end
+						spi_rw   :begin	r_ad80305_dataout <= r_write_data[15];end
+						spi_mod2 :begin	r_ad80305_dataout <= r_write_data[14];end
+						spi_mod1 :begin	r_ad80305_dataout <= r_write_data[13];end
+						spi_mod0 :begin	r_ad80305_dataout <= r_write_data[12];end
+						spi_null1:begin	r_ad80305_dataout <= r_write_data[11];end
+						spi_null0:begin	r_ad80305_dataout <= r_write_data[10];end
+						spi_add9 :begin	r_ad80305_dataout <= r_write_data[9] ;end
+						spi_add8 :begin	r_ad80305_dataout <= r_write_data[8] ;end
+						spi_add7 :begin	r_ad80305_dataout <= r_write_data[7] ;end
+						spi_add6 :begin	r_ad80305_dataout <= r_write_data[6] ;end
+						spi_add5 :begin	r_ad80305_dataout <= r_write_data[5] ;end
+						spi_add4 :begin	r_ad80305_dataout <= r_write_data[4] ;end
+						spi_add3 :begin	r_ad80305_dataout <= r_write_data[3] ;end
+						spi_add2 :begin	r_ad80305_dataout <= r_write_data[2] ;end
+						spi_add1 :begin	r_ad80305_dataout <= r_write_data[1] ;end
+						spi_add0 :begin	r_ad80305_dataout <= r_write_data[0] ;end
+						
+						//写入8位数据
+						spi_wr_data7:begin	r_ad80305_dataout <= i_data[7] ;end
+						spi_wr_data6:begin	r_ad80305_dataout <= i_data[6] ;end
+						spi_wr_data5:begin	r_ad80305_dataout <= i_data[5] ;end
+						spi_wr_data4:begin	r_ad80305_dataout <= i_data[4] ;end
+						spi_wr_data3:begin	r_ad80305_dataout <= i_data[3] ;end
+						spi_wr_data2:begin	r_ad80305_dataout <= i_data[2] ;end
+						spi_wr_data1:begin	r_ad80305_dataout <= i_data[1] ;end
+						spi_wr_data0:begin	r_ad80305_dataout <= i_data[0] ;end
+				        spi_stop    :begin  r_ad80305_dataout <= 1'b0      ;end
+				      default:
+				      	begin
+				      		r_ad80305_dataout <= 1'b0;
+				      	end                                               
+					endcase
+				end
+			else
+				r_ad80305_dataout <= r_ad80305_dataout;
+		end
+end
+
+//---------------------------------------------------------
+//输入数据
+//---------------------------------------------------------
+reg [7:0]	r_ad80305_datain;
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		r_ad80305_datain <= 8'd0;
+	else if(cnt_fre == 7'd124) 
+		begin
+			case(spi_current_state)
+				spi_rd_data7:begin r_ad80305_datain <= {i_ad80305_do,r_ad80305_datain[6:0]}                      ;	end
+				spi_rd_data6:begin r_ad80305_datain <= {r_ad80305_datain[7],i_ad80305_do,r_ad80305_datain[5:0]}  ;	end
+				spi_rd_data5:begin r_ad80305_datain <= {r_ad80305_datain[7:6],i_ad80305_do,r_ad80305_datain[4:0]};  end
+				spi_rd_data4:begin r_ad80305_datain <= {r_ad80305_datain[7:5],i_ad80305_do,r_ad80305_datain[3:0]};  end
+				spi_rd_data3:begin r_ad80305_datain <= {r_ad80305_datain[7:4],i_ad80305_do,r_ad80305_datain[2:0]};  end
+				spi_rd_data2:begin r_ad80305_datain <= {r_ad80305_datain[7:3],i_ad80305_do,r_ad80305_datain[1:0]};  end
+				spi_rd_data1:begin r_ad80305_datain <= {r_ad80305_datain[7:2],i_ad80305_do,r_ad80305_datain[0]}  ;  end
+				spi_rd_data0:begin r_ad80305_datain <= {r_ad80305_datain[7:1],i_ad80305_do}                      ;  end
+			default:
+				begin
+					r_ad80305_datain <= r_ad80305_datain;
+				end
+			endcase
+		end
+	else
+		r_ad80305_datain <= r_ad80305_datain;
+		
+		
+end
+
+//---------------------------------------------------------
+//输出片选
+//---------------------------------------------------------
+reg 	r_chip_cs0;
+reg     r_chip_cs1;
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		begin
+			r_chip_cs0 <= 1'b1;
+			r_chip_cs1 <= 1'b1;
+		end
+	else if(spi_current_state == spi_idle)
+		begin
+			r_chip_cs0 <= 1'b1;
+			r_chip_cs1 <= 1'b1;			
+		end
+	else if(i_chip_sel == 2'b00)
+		begin
+			r_chip_cs0 <= 1'b0;
+			r_chip_cs1 <= 1'b1;				
+		end
+	else if(i_chip_sel == 2'b01)
+		begin
+			r_chip_cs0 <= 1'b1;
+			r_chip_cs1 <= 1'b0;				
+		end		
+	else
+		begin
+			r_chip_cs0 <= 1'b1;
+			r_chip_cs1 <= 1'b1;	
+		end
+end
+
+//---------------------------------------------------------
+//最后结果表示
+//---------------------------------------------------------
+reg [7:0] r_rw_result;
+always@(posedge i_fpga_clk_125p or negedge i_fpga_rst_125p)
+begin
+	if(!i_fpga_rst_125p)
+		r_rw_result <= 8'd1;
+	else if(spi_current_state == spi_start)
+		r_rw_result <= 8'd0;
+	else if(spi_current_state == spi_idle)
+		r_rw_result <= 8'd1;
+	else
+		r_rw_result <= r_rw_result;
+		
+end
+
+
+assign o_rw_data = r_ad80305_datain;
+assign o_rw_result = r_rw_result;
+
+assign o_ad80305_clk = r_ad80305_clk    ;
+assign o_ad80305_di  = r_ad80305_dataout;
+assign o_ad80305_cs0 = r_chip_cs0       ;
+assign o_ad80305_cs1 = r_chip_cs1       ;
+
+endmodule    
+    
+    

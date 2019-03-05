@@ -1,0 +1,64 @@
+`timescale 1ns / 1ps
+/*==============================================================================
+Company             : COMBA TELECOM TECHNOLOGY(GUANGZHOU)CO.LTD
+Engineer            : Jietao Xu
+Create Date         : 31/3/2012
+Module Hierarchy    : top function module
+Design Name         : led_display_module.v
+Module Name         : led_display_module
+Project Name        : grru_trunk_amplify_top.qpf
+Target Devices      : Altera 
+Tool versions       : QUARTUSII11.0/Windows XP
+Description         :                      
+Dependencies        :                       
+Revision            : 0.01 - File Created
+Additional Comments :
+==============================================================================*/
+module led_display_module(
+    input           i_fpga_clk    ,
+    input           i_rst_n       ,
+    input   [7:0]   i_fpga_workin ,
+
+	output  [7:0]   o_fpga_workout,
+    output       	o_work_led    //???????????
+);
+
+//================================================================================
+// 1??	???????????                                                                
+//================================================================================
+    reg [12:0]	work_cnt0 ;//??????????0
+    reg [11:0]	work_cnt1 ;//??????????1   
+always@(posedge i_fpga_clk or negedge i_rst_n)
+    if(!i_rst_n)
+	    work_cnt0 <= 0;
+	else
+	    work_cnt0 <= work_cnt0 + 13'h0001;
+	      
+always@(posedge i_fpga_clk or negedge i_rst_n)
+    if (!i_rst_n)
+        work_cnt1 <= 0;
+    else if (work_cnt0 == 13'h1fff)
+        work_cnt1 <= work_cnt1 + 12'h001;
+
+	reg	      r_work_led ;
+always@(posedge i_fpga_clk or negedge i_rst_n)
+    if(!i_rst_n)
+        r_work_led <= 0;
+    else
+        r_work_led <= work_cnt1[11];
+        
+	reg	  [7:0]		r_fpga_workout ;
+always@(posedge i_fpga_clk or negedge i_rst_n)
+    if(!i_rst_n)
+        r_fpga_workout <= 0;
+    else
+        r_fpga_workout <= i_fpga_workin + 1'b1;        
+
+//================================================================================
+// 1??	output                                                                 
+//================================================================================     
+	assign o_fpga_workout = r_fpga_workout ;    
+	assign o_work_led = r_work_led ;   
+	                                                                 
+//================================================================================         
+endmodule            
