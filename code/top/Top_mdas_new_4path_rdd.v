@@ -16,7 +16,7 @@
 //==================================================================================================  
   
 module Top_mdas_new_4path_rdd #(
-	parameter MAIN_VERSION = 16'b0001_0000_0000_0001,//
+	parameter MAIN_VERSION = 16'b0001_0000_0000_1110,//
 	parameter DATE         = 16'h0127 //
 )(                                                                                    
     input              		I_fpgaclk_p			 ,//fpga main colck 125MHz                                   	                				                                 	                	        			                             
@@ -175,21 +175,6 @@ wire signed [11:0] 		w_dac_idata3    		;
 wire signed [11:0] 		w_dac_qdata3    		;
 
 
-wire signed [11:0]		w_i_sin_idata			;
-wire signed	[11:0]		w_i_sin_qdata			;
-wire					w_i_sin_iqdata_fp		;
-
-wire signed	[11:0]		w_o_sin_idata			;
-wire signed	[11:0]		w_o_sin_qdata			;
-wire signed				w_o_sin_iqdata_fp		;
-
-wire signed	[11:0]		w_i_diff_idata			;
-wire signed	[11:0]		w_i_diff_qdata			;
-wire signed				w_i_diff_iqdata_fp		;
-
-wire signed [11:0]		w_o_diff_idata			;
-wire signed	[11:0]		w_o_diff_qdata			;
-wire					w_o_diff_iqdata_fp		;
 
 
 
@@ -821,7 +806,7 @@ wire	[7 :0]			userreg_0x0120 			;
 wire	[7 :0]			userreg_0x0121 			;                                             
 wire	[7 :0]			userreg_0x0130 			;                                             
 wire	[7 :0]			userreg_0x0140 			;                                             
-wire	[7 :0]			userreg_0x0141 			; /*systhesis keep*/                                            
+wire	[7 :0]			userreg_0x0141 			;                                          
 wire	[7 :0]			userreg_0x0144 			;                                             
 wire	[7 :0]			userreg_0x014a 			;                                             
 wire	[7 :0]			userreg_0x014b 			;                                             
@@ -975,27 +960,26 @@ wire 	[7 :0]			userreg_0x0229			;
 	wire w_rx2_clk0;
 	wire w_rx3_clk0;
 	
-	
 //clk_rst_system 	u_clk_rst_system(                                                         
 clk_rst_system_v2 	u_clk_rst_system_v2(                                                      
-	.i_fpgaclk_p    	(I_fpgaclk_p   		),//125mhz                                        
-	.i_fpgakey_rst  	(I_fpgakey_rst 		),                                                
-	.i_fpgasoft_rst 	(I_fpgasoft_rst		),                                                
-	.o_fpga_clk_10p		(w_fpga_clk_10p		),//level 1	//system_clk                          
-	.o_fpga_clk_125p 	(w_fpga_clk_125p 	),                                                
-	.o_fpga_dcm_locked  (w_fpga_dcm_locked  ),                                                
-	.o_fpga_clk_150p 	(w_fpga_clk_150p 	),//level 2                                       
-	.o_fpga_clk_25p		(w_fpga_clk_25p		),//                                              
-	.o_fpga_clk_40p		(w_fpga_clk_40p		),                                                
-	.o_fpga_clk_62p5	(w_fpga_clk_62p5	),                                                
+	.i_fpgaclk_p    	  (I_fpgaclk_p   		),//125mhz                                        
+	.i_fpgakey_rst  	  (I_fpgakey_rst 		),                                                
+	.i_fpgasoft_rst 	  (I_fpgasoft_rst		),                                                
+	.o_fpga_clk_10p	      (w_fpga_clk_10p		),//level 1	//system_clk                          
+	.o_fpga_clk_125p 	  (w_fpga_clk_125p 		),                                                
+	.o_fpga_dcm_locked    (w_fpga_dcm_locked    ),                                                
+	.o_fpga_clk_150p 	  (w_fpga_clk_150p 	    ),//level 2                                       
+	.o_fpga_clk_25p	      (w_fpga_clk_25p		),//                                              
+	.o_fpga_clk_40p	      (w_fpga_clk_40p		),                                                
+	.o_fpga_clk_62p5	  (w_fpga_clk_62p5	    ),                                                
 //------------------------------------------------------------------------------                         
-	.o_tx0_clk			(w_tx0_clk			),//DAC_CLK	                                                                                  
-	.o_tx1_clk		    (w_tx1_clk		    ),                                                                                          
-	.o_tx2_clk		    (w_tx2_clk		    ),                                                                                           
-	.o_tx3_clk		    (w_tx3_clk		    ),                                                                                                                           
-	.o_rst_62p5_m       (w_rst_62p5_m       ),                                                
-	.o_rst_125p_m       (w_rst_125p_m       ),                                                
-	.o_rst_150p_m       (w_rst_150p_m       )                                                 
+	.o_tx0_clk			 (w_tx0_clk			    ),//DAC_CLK	                                                                                  
+	.o_tx1_clk		     (w_tx1_clk		        ),                                                                                          
+	.o_tx2_clk		     (w_tx2_clk		        ),                                                                                           
+	.o_tx3_clk		     (w_tx3_clk		        ),                                                                                                                           
+	.o_rst_62p5_m        (w_rst_62p5_m          ),                                                
+	.o_rst_125p_m        (w_rst_125p_m          ),                                                
+	.o_rst_150p_m        (w_rst_150p_m          )                                                 
 );  
 
                                                                                          
@@ -1013,22 +997,25 @@ ad80305_inf_top_ddr_lvcmos_31p25 u1_ad80305_inf_top_ddr_lvcmos_31p25(//LTE2 31.2
 	.i_dc_corr_qdata	(userreg_0x015f     		), 
 	.o_aver_idata		(),
 	.o_aver_qdata       (),                                                                               
-	.o_idata        	(w_i_sin_idata				),//(w_idata_lte2	 			),                                        
-	.o_qdata        	(w_i_sin_qdata				),//(w_qdata_lte2	 			), 
-	.o_iqdata_fp    	(w_i_sin_iqdata_fp			),//(w_iqdata_fp_lte2			),                                        
-    .i_tx_clk       	(w_tx1_clk		 			),                                        
-	.i_idata          	(w_o_sin_idata				),//(w_dac_idata1				),//(w_gain1_dac_0p1_idata   	),//w_duc1_idata       ),                                  
-	.i_qdata          	(w_o_sin_qdata				),//(w_dac_qdata1				),//(w_gain1_dac_0p1_qdata   	),//w_duc1_qdata       ),                                  
-    .i_iqdata_fp        (w_o_sin_iqdata_fp			),//(w_dac_iqdata_fp1			),//(w_gain1_dac_0p1_iqdata_fp  ),//w_duc1_data_fp     ),                                      
-	.o_tx_clk       	(O_tx1_clk  				),                                        
-	.o_tx_frame     	(O_tx1_frame				),                                        
-	.o_tx_data      	(O_tx1_data 				)                                         
+	.o_idata        	(w_adc_idata1				),//(w_idata_lte2	 			),                                        
+	.o_qdata        	(w_adc_qdata1				),//(w_qdata_lte2	 			), 
+	.o_iqdata_fp    	(w_adc_iqdata_fp1			),//(w_iqdata_fp_lte2			),                                        
+   .i_tx_clk       	    (w_tx1_clk		 			),                                        
+	.i_idata          	(w_adc_idata1				),//(w_dac_idata1				),//(w_gain1_dac_0p1_idata   	),//w_duc1_idata       ),                                  
+	.i_qdata           (w_adc_qdata1				),//(w_dac_qdata1				),//(w_gain1_dac_0p1_qdata   	),//w_duc1_qdata       ),                                  
+   .i_iqdata_fp        (w_adc_iqdata_fp1			),//(w_dac_iqdata_fp1			),//(w_gain1_dac_0p1_iqdata_fp  ),//w_duc1_data_fp     ),                                      
+	.o_tx_clk       	(O_tx1_clk  				   ),                                        
+	.o_tx_frame     	(O_tx1_frame				   ),                                        
+	.o_tx_data      	(O_tx1_data 				   ),
+//----------------------------------------------------
+	.i_rom_data			  (w_iq_data)					,
+	.i_iq_swap_sel		  (userreg_0x0210[0])
     ); 
     
 //从板接口1，LVDS，时钟为62.5MHz，采样率为31.25MSPS，使用可能：1、LTE1(1.8G)；2、LTE1(1.8G)；3、LTE1(2.1G)                                                        
 ad80305_inf_top_ddr_dcs u2_ad80305_inf_top_ddr_lvds_lte(//LTE1 31.25                                                
 	.i_fpga_clk_125p	(w_fpga_clk_125p 			), 
-	.i_fpga_rst_125p	(w_rst_125p_m       		), 
+	.i_fpga_rst_125p	(w_rst_125p_m       		),    
 	.i_rx_clk_p        	(I_rx2_clk_p				),
 	.i_rx_frame_p      	(I_rx2_frame_p				),
 	.i_rx_data_p       	(I_rx2_data_p				),
@@ -1039,12 +1026,12 @@ ad80305_inf_top_ddr_dcs u2_ad80305_inf_top_ddr_lvds_lte(//LTE1 31.25
 	.i_dc_corr_qdata	(userreg_0x005f     		), 
 	.o_aver_idata		(),
 	.o_aver_qdata       (),
-	.o_idata         	(w_i_diff_idata				),//(w_idata_lte1	 			),//w_idata_td			),
-	.o_qdata         	(w_i_diff_qdata				),//(w_qdata_lte1	 			),//w_qdata_td			),
-	.o_iqdata_fp     	(w_i_diff_iqdata_fp			),//(w_iqdata_fp_lte1			),//w_iqdata_fp_td		),                                                                                  
-	.i_idata         	(w_o_diff_idata				),//(w_dac_idata2				),//(w_gain0_dac_0p1_idata   	),//w_duc0_idata  		),//w_duc2_idata        ),
-	.i_qdata         	(w_o_diff_qdata				),//(w_dac_qdata2				),//(w_gain0_dac_0p1_qdata   	),//w_duc0_qdata  		),//w_duc2_qdata        ),
-	.i_iqdata_fp 		(w_o_diff_iqdata_fp			),//(w_dac_iqdata_fp2			),//(w_gain0_dac_0p1_iqdata_fp  ),//w_duc1_data_fp		),//w_duc2_data_fp      ),
+	.o_idata         	(w_adc_idata2				),//(w_idata_lte1	 			),//w_idata_td			),
+	.o_qdata         	(w_adc_qdata2				),//(w_qdata_lte1	 			),//w_qdata_td			),
+	.o_iqdata_fp     	(w_adc_iqdata_fp2			),//(w_iqdata_fp_lte1			),//w_iqdata_fp_td		),                                                                                  
+	.i_idata         	(w_adc_idata2				),//(w_dac_idata2				),//(w_gain0_dac_0p1_idata   	),//w_duc0_idata  		),//w_duc2_idata        ),
+	.i_qdata         	(w_adc_qdata2				),//(w_dac_qdata2				),//(w_gain0_dac_0p1_qdata   	),//w_duc0_qdata  		),//w_duc2_qdata        ),
+	.i_iqdata_fp 		(w_adc_iqdata_fp2			),//(w_dac_iqdata_fp2			),//(w_gain0_dac_0p1_iqdata_fp  ),//w_duc1_data_fp		),//w_duc2_data_fp      ),
 	.i_tx_clk			(w_tx2_clk					), 
 	.o_tx_clk        	(O_tx2_clk_p   				),
 	.o_tx_frame      	(O_tx2_frame_p 				),
@@ -1568,12 +1555,12 @@ iic_slave_module u_iic_slave_module(
 	.userreg_0x0155 (userreg_0x0155    	),                                                    
 	.userreg_0x0255 (userreg_0x0255    	),                                                    
 	.userreg_0x0355 (userreg_0x0355    	), 
-    .userreg_0x005e (userreg_0x005e    	),   
-    .userreg_0x005f (userreg_0x005f    	),   
-    .userreg_0x015e (userreg_0x015e    	),   
-    .userreg_0x015f (userreg_0x015f    	),   
-    .userreg_0x025e (userreg_0x025e    	),   
-    .userreg_0x025f (userreg_0x025f    	),   		
+   .userreg_0x005e (userreg_0x005e    	),   
+   .userreg_0x005f (userreg_0x005f    	),   
+   .userreg_0x015e (userreg_0x015e    	),   
+   .userreg_0x015f (userreg_0x015f    	),   
+   .userreg_0x025e (userreg_0x025e    	),   
+   .userreg_0x025f (userreg_0x025f    	),   		
 	.userreg_0x035e (userreg_0x035e    	),
 	.userreg_0x035f (userreg_0x035f    	),                                                     
 	.userreg_0x005d (userreg_0x005d    	), 
@@ -1757,9 +1744,9 @@ iic_slave_module u_iic_slave_module(
 	.monitor_0x01aa (monitor_0x01aa    	),                                                    
 	.monitor_0x02aa (monitor_0x02aa    	),                                                    
 	.monitor_0x03aa (monitor_0x03aa    	),                                                    
-	
+		
 	.monitor_0x00ab (monitor_0x00ab    	), 
-  
+	
 	.monitor_0x01ab (monitor_0x01ab    	),  
 	.monitor_0x01ac (monitor_0x01ac    	), 
 	.monitor_0x02ab (monitor_0x02ab    	), 
@@ -1794,7 +1781,7 @@ iic_slave_module u_iic_slave_module(
 	.monitor_0x02bd (monitor_0x02bd    	),  
 	.monitor_0x02be (monitor_0x02be    	),  
 	.monitor_0x02bf (monitor_0x02bf    	),  	 
-	                                             
+																	
 	.monitor_0x01b3 (monitor_0x01b3    	),                                                    
 	.monitor_0x03b3 (monitor_0x03b3    	),                                                    
 	.monitor_0x03b4 (monitor_0x03b4    	),                                                    
@@ -1832,7 +1819,7 @@ iic_slave_module u_iic_slave_module(
 	.monitor_0x01cd (monitor_0x01cd    	),		
 	.monitor_0x02c9 (monitor_0x02c9    	),
 	.monitor_0x03c9 (monitor_0x03c9    	),
-	                                                 
+																	
 	.monitor_0x03c0 (monitor_0x03c0		),                                                    
 	.monitor_0x03c1 (monitor_0x03c1		),                                                    
 	.monitor_0x03c2 (monitor_0x03c2		),                                                    
@@ -1845,7 +1832,7 @@ iic_slave_module u_iic_slave_module(
 	.monitor_0x0395 (monitor_0x0395    	),                                                    
 	.monitor_0x00b4 (monitor_0x00b4 	),                                                    
 	.monitor_0x00b5 (monitor_0x00b5 	), 
-	.monitor_0x00b6 (monitor_0x00b6    	),	                                                   
+	.monitor_0x00b6 (monitor_0x00b6     ),	                                                   
 	.monitor_0x01b4 (monitor_0x01b4 	),                                                    
 	.monitor_0x01b5 (monitor_0x01b5 	),      
 	.monitor_0x02b4 (monitor_0x02b4 	),  
@@ -1855,6 +1842,39 @@ iic_slave_module u_iic_slave_module(
 	.monitor_0x00ad (monitor_0x00ad		)				                                              
     ); 
 	
+//----------------------------------------------------------------
+//rom
+//----------------------------------------------------------------
+reg  [17:0] r_address;
+wire [17:0] w_address;
+wire [23:0] w_iq_data;
+
+always @(posedge w_tx1_clk or negedge w_rst_125p_m)
+begin
+	if(!w_rst_125p_m)
+	begin
+		r_address <= 18'd0;
+	end
+	else
+	begin
+		if(r_address == 18'd153599)
+			r_address <= 18'd0;
+		else
+		begin
+			r_address <= r_address + 18'd1;
+		end	
+	end
+end
+assign w_address = r_address;
+
+
+rom	rom_inst(
+	.address ( w_address   ),
+	.clock 	( w_tx1_clk   ),
+	.q			( w_iq_data   ) 
+	);
+
+
 	
 	
 //-----------------------------------------------------------
@@ -1867,10 +1887,10 @@ iic_slave_module u_iic_slave_module(
 	
 	//输出到SPI模块
 	wire   				w_cz_rd_en;
-	wire				w_cz_wr_en;
+	wire					w_cz_wr_en;
 	wire   [15:0]		w_cz_rw_addr;
 	wire   [31:0]		w_cz_wr_data_mcu;
-	wire				w_cz_mod_sel_mcu;
+	wire					w_cz_mod_sel_mcu;
 	
 	//输出到监视寄存器 即输出到MCU
 	wire   [7:0]		w_cz_success_arbi_to_monitor;
@@ -1878,8 +1898,8 @@ iic_slave_module u_iic_slave_module(
 
 	
 cz_spi_arbitration u_cz_spi_arbitration(
-	.i_clk			    (w_fpga_clk_125p		),
-	.i_rst_n			(w_rst_125p_m			),	
+	.i_clk			   (w_fpga_clk_125p			),
+	.i_rst_n				(w_rst_125p_m				),	
 	.i_rd_en_mcu		(userreg_0x0166[0]		),
 	.i_wr_en_mcu		(userreg_0x0140[0]		),
 	.i_mod_sel_mcu		(userreg_0x0270[0]		),
@@ -1891,8 +1911,8 @@ cz_spi_arbitration u_cz_spi_arbitration(
 	.i_return_data		(w_cz_data_spi_to_arbi	),
 	
 	//输出到SPI模块
-	.o_rd_en			(w_cz_rd_en				),
-	.o_wr_en			(w_cz_wr_en				),
+	.o_rd_en				(w_cz_rd_en				),
+	.o_wr_en				(w_cz_wr_en				),
 	.o_mod_sel_mcu		(w_cz_mod_sel_mcu		),
 	.o_rw_addr			(w_cz_rw_addr			),
 	.o_wr_data_mcu		(w_cz_wr_data_mcu		),
@@ -1916,8 +1936,8 @@ cz_spi_interface u_cz_spi_interface(
 	.i_fpga_clk_125p	(w_fpga_clk_125p),
 	.i_fpga_rst_125p	(w_rst_125p_m),
 	
-	.i_rd_en			(w_cz_rd_en),
-	.i_wr_en			(w_cz_wr_en),
+	.i_rd_en			   (w_cz_rd_en),
+	.i_wr_en			   (w_cz_wr_en),
 	.i_mod_sel			(w_cz_mod_sel_mcu),
 	.i_addr				(w_cz_rw_addr),
 	.i_data				(w_cz_wr_data_mcu),
@@ -1931,26 +1951,5 @@ cz_spi_interface u_cz_spi_interface(
 	.o_ad80305_cs		(O_cz_spi_cs)
 );	 
 
-//-----------------------------------------
-// 通道切换模块
-//-----------------------------------------
-change_channel	u_change_channel(
-	.i_clk_125p			(w_fpga_clk_125p),
-	.i_rst_n			(w_rst_125p_m),
-	.tx_switch			(userreg_0x0168),
-	.rx_switch			(userreg_0x0167),	
-	.i_sin_idata		(w_i_sin_idata),
-	.i_sin_qdata		(w_i_sin_qdata),
-	.i_sin_iqdata_fp	(w_i_sin_iqdata_fp),
-	.i_diff_idata		(w_i_diff_idata),
-	.i_diff_qdata		(w_i_diff_qdata),
-	.i_diff_iqdata_fp	(w_i_diff_iqdata_fp),
-	.o_sin_idata		(w_o_sin_idata),
-	.o_sin_qdata		(w_o_sin_qdata),
-	.o_sin_iqdata_fp	(w_o_sin_iqdata_fp),
-	.o_diff_idata		(w_o_diff_idata),
-	.o_diff_qdata		(w_o_diff_qdata),
-	.o_diff_iqdata_fp	(w_o_diff_iqdata_fp)
-);
 
 endmodule

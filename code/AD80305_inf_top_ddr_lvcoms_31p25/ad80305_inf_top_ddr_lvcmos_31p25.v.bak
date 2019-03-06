@@ -20,27 +20,25 @@ module ad80305_inf_top_ddr_lvcmos_31p25(
     input                       i_rx_clk                            ,
     input                       i_rx_frame                          ,
     input   [11:0]              i_rx_data                           ,
-	 input                       i_fpga_clk_125p						     ,
-	 input                       i_fpga_rst_125p						     ,
-	 input	[2:0]				     i_iq_corr_bypass					     ,
-	 input						     i_dc_bypass							     ,
-	 input						     i_dc_set_sw							     ,
-	 input  signed  [7:0]        i_dc_corr_idata     				     ,
-	 input  signed  [7:0]        i_dc_corr_qdata     				     ,	
-	 output		    [11:0]		  o_aver_idata						        ,
-	 output		    [11:0]		  o_aver_qdata        				     ,
+	input                       i_fpga_clk_125p						,
+	input                       i_fpga_rst_125p						,
+	input	[2:0]				i_iq_corr_bypass					,
+	input						i_dc_bypass							,
+	input						i_dc_set_sw							,
+	input  signed [7:0]         i_dc_corr_idata     				,
+	input  signed [7:0]         i_dc_corr_qdata     				,	
+	output		  [11:0]		o_aver_idata						,
+	output		  [11:0]		o_aver_qdata        				,
     output                      o_iqdata_fp                         ,
-    output  [11:0]				  o_idata                             ,
-    output  [11:0]				  o_qdata                             ,
-    input                       i_iqdata_fp 						        ,
-    input   [11:0]				  i_idata                             ,
-    input   [11:0]				  i_qdata                             ,              
-	 input                       i_tx_clk							        ,
+    output [11:0]				o_idata                             ,
+    output [11:0]				o_qdata                             ,
+    input                       i_iqdata_fp 						,
+    input [11:0]				i_idata                             ,
+    input [11:0]				i_qdata                             ,              
+	input                       i_tx_clk							,
     output                      o_tx_clk                            ,
-    output 					        o_tx_frame                          ,
-    output  [11:0]				  o_tx_data                           ,
-	 input   [23:0]				  i_rom_data								  ,
-	 input   						  i_iq_swap_sel
+    output 					    o_tx_frame                          ,
+    output [11:0]				o_tx_data                           
     );
 
 wire        w_rx_iqdata_fp ; 
@@ -67,9 +65,7 @@ ad80305_tx_if_ddr_lvcmos_31p25 u0_ad80305_tx_if_ddr_lvcmos_31p25(
 	.i_tx_clk                (i_tx_clk			),  
 	.o_tx_clk                (o_tx_clk			),
 	.o_tx_frame              (o_tx_frame		),
-	.o_tx_data               (o_tx_data			),
-	.i_rom_data					 (i_rom_data		),
-	.i_iq_swap_sel				 (i_iq_swap_sel)
+	.o_tx_data               (o_tx_data			)
     );
     
         

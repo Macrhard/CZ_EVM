@@ -22,14 +22,12 @@ module ad80305_tx_if_ddr_lvcmos_31p25(
     input              i_tx_clk        , 
     output             o_tx_clk        ,
     output             o_tx_frame      ,
-    output  [11:0]     o_tx_data			,
-	 input   [23:0]	  i_rom_data		,
-	 input				  i_iq_swap_sel
+    output  [11:0]     o_tx_data
     );
 
 reg [11:0] cos_data,sin_data ;
-always @ (posedge i_fpga_clk) cos_data  <= i_rom_data[23:12];	//i_tx_qdata ;   //i_tx_idata ;
-always @ (posedge i_fpga_clk) sin_data  <= i_rom_data[11:0 ];	//i_tx_idata ;   //i_tx_qdata ; 
+always @ (posedge i_fpga_clk) cos_data  <= i_tx_qdata ;   //i_tx_idata ;
+always @ (posedge i_fpga_clk) sin_data  <= i_tx_idata ;   //i_tx_qdata ; 
 
 reg cos_data_fp;
 always @ (posedge i_fpga_clk or negedge i_fpga_rst)
@@ -41,7 +39,7 @@ begin
 end
 
 wire [23:0] w_dac_data;
-assign w_dac_data = (i_iq_swap_sel) ? {cos_data,sin_data} : {sin_data,cos_data};
+assign w_dac_data = {cos_data,sin_data};
 
 reg [1:0] cnt_4;
 always@(posedge i_fpga_clk or negedge i_fpga_rst)
@@ -102,7 +100,7 @@ ad80305_oddr ad80305_oddr_inst(
 	);   
 	
     assign o_tx_clk   = data_out[13];
-    assign o_tx_frame = 1'b1;				//1t1r 时拉高
+    assign o_tx_frame = data_out[12];
     assign o_tx_data  = data_out[11:0];	         
 
 endmodule 
