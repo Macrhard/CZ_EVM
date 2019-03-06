@@ -1857,7 +1857,7 @@ begin
 	end
 	else
 	begin
-		if(r_address == 18'd153599)
+		if(r_address == {userreg_0x0315,userreg_0x0314,userreg_0x0313})   //18'd153599
 			r_address <= 18'd0;
 		else
 		begin
